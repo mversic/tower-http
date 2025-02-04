@@ -98,12 +98,6 @@ where
                         break Poll::Ready(Ok(build_response(*file_output)));
                     }
 
-                    Ok(OpenFileOutput::Redirect { location }) => {
-                        let mut res = response_with_status(StatusCode::TEMPORARY_REDIRECT);
-                        res.headers_mut().insert(http::header::LOCATION, location);
-                        break Poll::Ready(Ok(res));
-                    }
-
                     Ok(OpenFileOutput::FileNotFound) => {
                         if let Some((mut fallback, request)) = fallback_and_request.take() {
                             call_fallback(&mut fallback, request)

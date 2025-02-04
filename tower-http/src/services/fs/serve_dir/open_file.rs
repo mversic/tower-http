@@ -4,7 +4,7 @@ use super::{
 };
 use crate::content_encoding::{Encoding, QValue};
 use bytes::Bytes;
-use http::{header, HeaderValue, Method, Request, Uri};
+use http::{header, HeaderValue, Method, Request};
 use http_body_util::Empty;
 use http_range_header::RangeUnsatisfiableError;
 use std::{
@@ -18,7 +18,6 @@ use tokio::{fs::File, io::AsyncSeekExt};
 
 pub(super) enum OpenFileOutput {
     FileOpened(Box<FileOpened>),
-    Redirect { location: HeaderValue },
     FileNotFound,
     PreconditionFailed,
     NotModified,
@@ -63,12 +62,9 @@ pub(super) async fn open_file(
             // Might already at this point know a redirect or not found result should be
             // returned which corresponds to a Some(output). Otherwise the path might be
             // modified and proceed to the open file/metadata future.
-            if let Some(output) = maybe_redirect_or_append_path(
-                &mut path_to_file,
-                req.uri(),
-                append_index_html_on_directories,
-            )
-            .await
+            if let Some(output) =
+                maybe_redirect_or_append_path(&mut path_to_file, append_index_html_on_directories)
+                    .await
             {
                 return Ok(output);
             }
@@ -252,7 +248,6 @@ async fn file_metadata_with_fallback(
 
 async fn maybe_redirect_or_append_path(
     path_to_file: &mut PathBuf,
-    uri: &Uri,
     append_index_html_on_directories: bool,
 ) -> Option<OpenFileOutput> {
     if !is_dir(path_to_file).await {
@@ -263,14 +258,8 @@ async fn maybe_redirect_or_append_path(
         return Some(OpenFileOutput::FileNotFound);
     }
 
-    if uri.path().ends_with('/') {
-        path_to_file.push("index.html");
-        None
-    } else {
-        let location =
-            HeaderValue::from_str(&append_slash_on_path(uri.clone()).to_string()).unwrap();
-        Some(OpenFileOutput::Redirect { location })
-    }
+    *path_to_file = path_to_file.join("index.html");
+    None
 }
 
 fn try_parse_range(
@@ -287,37 +276,6 @@ async fn is_dir(path_to_file: &Path) -> bool {
     tokio::fs::metadata(path_to_file)
         .await
         .map_or(false, |meta_data| meta_data.is_dir())
-}
-
-fn append_slash_on_path(uri: Uri) -> Uri {
-    let http::uri::Parts {
-        scheme,
-        authority,
-        path_and_query,
-        ..
-    } = uri.into_parts();
-
-    let mut uri_builder = Uri::builder();
-
-    if let Some(scheme) = scheme {
-        uri_builder = uri_builder.scheme(scheme);
-    }
-
-    if let Some(authority) = authority {
-        uri_builder = uri_builder.authority(authority);
-    }
-
-    let uri_builder = if let Some(path_and_query) = path_and_query {
-        if let Some(query) = path_and_query.query() {
-            uri_builder.path_and_query(format!("{}/?{}", path_and_query.path(), query))
-        } else {
-            uri_builder.path_and_query(format!("{}/", path_and_query.path()))
-        }
-    } else {
-        uri_builder.path_and_query("/")
-    };
-
-    uri_builder.build().unwrap()
 }
 
 #[test]
